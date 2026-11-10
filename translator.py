@@ -18,7 +18,9 @@ translations_cache = {}
 def open_cache():
     global translations_cache
     for language in LANGUAGES:
-        translations_cache[language] = Cache(f"./cache/{language}/translation/tmp")
+        cache_version = 'v2' if language == 'ar-SA' else 'tmp'
+        # Keep legacy translations isolated so cached English fallbacks are ignored.
+        translations_cache[language] = Cache(f"./cache/{language}/translation/{cache_version}")
 
 def close_cache():
     global translations_cache
@@ -34,6 +36,11 @@ def get_cache_lenght():
 
 # Poster ratings
 RATINGS_SERVER = os.getenv('TR_SERVER', 'https://ca6771aaa821-toast-ratings.baby-beamup.club')
+
+
+def has_arabic(value: object) -> bool:
+    """Return whether a text contains Arabic script characters."""
+    return isinstance(value, str) and any('\u0600' <= char <= '\u06ff' for char in value)
 
 async def translate_with_api(client: httpx.AsyncClient, text: str, language: str, source='en') -> str:
     """Translate text with MyMemory, splitting long input into API-safe chunks."""
@@ -165,7 +172,9 @@ async def translate_catalog_descriptions(
 
     translations = await asyncio.gather(*tasks)
     for detail, translated in zip(details, translations):
-        detail['overview'] = translated
+        # Keep the original overview when MyMemory fails or returns English.
+        if has_arabic(translated):
+            detail['overview'] = translated
 
 async def translate_episodes_with_api(client: httpx.AsyncClient, episodes: list[dict], language: str):
     tasks = []
