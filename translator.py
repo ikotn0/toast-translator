@@ -139,6 +139,34 @@ async def translate_with_api(client: httpx.AsyncClient, text: str, language: str
     translations_cache[language].set(text, translated_text)
     return translated_text
 
+
+async def translate_catalog_descriptions(
+    client: httpx.AsyncClient,
+    tmdb_meta: list[dict],
+    items: list[dict],
+    language: str,
+) -> None:
+    """Translate TMDB overviews before the synchronous catalog formatter uses them."""
+    details = []
+    tasks = []
+
+    for index, item in enumerate(items):
+        if index >= len(tmdb_meta) or tmdb_meta[index].get('error'):
+            continue
+        type_key = 'movie' if item.get('type') == 'movie' else 'tv'
+        try:
+            detail = tmdb_meta[index][f"{type_key}_results"][0]
+            description = detail.get('overview', '')
+        except (KeyError, IndexError, TypeError):
+            continue
+        if description:
+            details.append(detail)
+            tasks.append(translate_with_api(client, description, language))
+
+    translations = await asyncio.gather(*tasks)
+    for detail, translated in zip(details, translations):
+        detail['overview'] = translated
+
 async def translate_episodes_with_api(client: httpx.AsyncClient, episodes: list[dict], language: str):
     tasks = []
 
