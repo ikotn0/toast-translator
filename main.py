@@ -18,6 +18,7 @@ import json
 import os
 import zipfile
 import shutil
+import logging
 
 # Settings
 translator_version = 'v0.1.9'
@@ -91,6 +92,38 @@ async def lifespan(app: FastAPI):
     
 
 app = FastAPI(lifespan=lifespan)
+logger = logging.getLogger(__name__)
+
+
+async def translate_description(client, description, language, source):
+    """Translate a description and log safe diagnostics without its contents."""
+    logger.info(
+        "Description translation started: source=%s target=%s chars=%d",
+        source,
+        language,
+        len(description or "")
+    )
+    try:
+        translated = await translator.translate_with_api(client, description, language)
+        logger.info(
+            "Description translation finished: source=%s target=%s "
+            "changed=%s result_chars=%d",
+            source,
+            language,
+            translated != description,
+            len(translated or "")
+        )
+        return translated
+    except Exception:
+        logger.exception(
+            "Description translation failed: source=%s target=%s chars=%d",
+            source,
+            language,
+            len(description or "")
+        )
+        raise
+
+
 templates = Jinja2Templates(directory="templates")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -313,7 +346,7 @@ async def get_meta(request: Request,response: Response, addon_url, user_settings
                         meta, merged_videos = meta_merger.merge(tmdb_meta, cinemeta_meta)
                         description = meta['meta'].get('description', '')
                         if description:
-                            tasks.append(translator.translate_with_api(client, description, language))
+                            tasks.append(translate_description(client, description, language, "merged_meta"))
 
                         if type == 'series' and (len(meta['meta']['videos']) < len(merged_videos)):
                             tasks.append(translator.translate_episodes(client, merged_videos, language, tmdb_key))
@@ -335,14 +368,14 @@ async def get_meta(request: Request,response: Response, addon_url, user_settings
                         
                         if type == 'series':
                             tasks = [
-                                translator.translate_with_api(client, description, language),
+                                translate_description(client, description, language, "cinemeta_series"),
                                 translator.translate_episodes(client, meta['meta']['videos'], language, tmdb_key)
                             ]
                             description, episodes = await asyncio.gather(*tasks)
                             meta['meta']['videos'] = episodes
 
                         elif type == 'movie':
-                            description = await translator.translate_with_api(client, description, language)
+                            description = await translate_description(client, description, language, "cinemeta_movie")
 
                         meta['meta']['description'] = description
                     
@@ -403,7 +436,7 @@ async def get_meta(request: Request,response: Response, addon_url, user_settings
                     videos = meta['meta'].get('videos', [])
 
                     if description:
-                        tasks.append(translator.translate_with_api(client, description, language))
+                        tasks.append(translate_description(client, description, language, "kitsu_meta"))
 
                     if type == 'series' and videos:
                         tasks.append(translator.translate_episodes_with_api(client, videos, language))
