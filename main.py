@@ -21,7 +21,7 @@ import shutil
 import logging
 
 # Settings
-translator_version = 'v0.1.9'
+translator_version = 'v0.1.10'
 FORCE_PREFIX = False
 FORCE_META = False
 USE_TMDB_ID_META = True
@@ -44,7 +44,9 @@ meta_cache = {}
 def open_cache():
     global meta_cache
     for language in LANGUAGES:
-        meta_cache[language] = Cache(f"./cache/{language}/meta/tmp",  timedelta(hours=12).total_seconds())
+        # Ignore only the stale Arabic metadata cache; other locales retain theirs.
+        cache_version = 'v2' if language == 'ar-SA' else 'tmp'
+        meta_cache[language] = Cache(f"./cache/{language}/meta/{cache_version}",  timedelta(hours=12).total_seconds())
 
 def close_cache():
     global meta_cache
@@ -271,6 +273,11 @@ async def get_catalog(response: Response, addon_url, type: str, user_settings: s
                         tasks.append(tmdb.get_tmdb_data(client, id, "imdb_id", language, tmdb_key))
 
             tmdb_details = await asyncio.gather(*tasks)
+            if language == 'ar-SA':
+                # Translate overviews while the AsyncClient used by MyMemory is open.
+                await translator.translate_catalog_descriptions(
+                    client, tmdb_details, catalog['metas'], language
+                )
         else:
             return JSONResponse(content={}, headers=cloudflare_cache_headers)
 
@@ -356,7 +363,8 @@ async def get_meta(request: Request,response: Response, addon_url, user_settings
                             if isinstance(task, list):
                                 meta['meta']['videos'] = task
                             elif isinstance(task, str):
-                                meta['meta']['description'] = task
+                                if language != 'ar-SA' or translator.has_arabic(task):
+                                    meta['meta']['description'] = task
                     else:
                         meta = tmdb_meta
 
@@ -459,6 +467,15 @@ async def get_meta(request: Request,response: Response, addon_url, user_settings
                 response = await client.get(f"{addon_url}/meta/{type}/{id}.json", headers=stremio_headers)
                 return JSONResponse(content=response.json(), headers=cloudflare_cache_headers)
 
+
+            # Covers direct tmdb: metadata and all other successful metadata routes.
+            description = meta.get('meta', {}).get('description', '')
+            if language == 'ar-SA' and description and not translator.has_arabic(description):
+                translated = await translate_description(
+                    client, description, language, "meta_final"
+                )
+                if translator.has_arabic(translated):
+                    meta['meta']['description'] = translated
 
             meta['meta']['id'] = id
             meta_cache[language].set(cache_key, meta)
