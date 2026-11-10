@@ -285,8 +285,7 @@ def extract_crew(tmdb_data: dict):
     for person in tmdb_data['credits']['crew']:
         if person['department'] == 'Writing' and person['name'] not in writers:
                 writers.append(person['name'])
-        elif person['known_for_department'] == 'Directing' and person.get('job', '') == 'Director' and person['name'] not in directors:
-            directors.append(person['name'])
+       elif person.get('known_for_department') == 'Directing' and person.get('job', '') == 'Director' and person.get('name') not in directors:
         
     return directors, writers
 
