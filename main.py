@@ -311,10 +311,9 @@ async def get_meta(request: Request,response: Response, addon_url, user_settings
                     if id not in kitsu.imdb_ids_map:
                         tasks = []
                         meta, merged_videos = meta_merger.merge(tmdb_meta, cinemeta_meta)
-                        tmdb_description = tmdb_meta['meta'].get('description', '')
-                        
-                        if tmdb_description == '':
-                            tasks.append(translator.translate_with_api(client, meta['meta'].get('description', ''), language))
+                        description = meta['meta'].get('description', '')
+                        if description:
+                            tasks.append(translator.translate_with_api(client, description, language))
 
                         if type == 'series' and (len(meta['meta']['videos']) < len(merged_videos)):
                             tasks.append(translator.translate_episodes(client, merged_videos, language, tmdb_key))
