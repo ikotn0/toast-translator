@@ -100,7 +100,7 @@ async def build_metadata(imdb_id: str, type: str, language: str, tmdb_key: str):
                 "type": type,
                 "cast": cast,
                 "country": (tmdb_data.get('origin_country') or [''])[0],
-                "description": tmdb_data.get('overview', ''),
+                "description": await translator.translate_with_api(client, tmdb_data.get('overview', ''), language),
                 "director": directors,
                 "genre": genres,
                 "imdbRating": rating,
