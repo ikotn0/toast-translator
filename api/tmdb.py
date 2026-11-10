@@ -1,6 +1,5 @@
 --- a/api/tmdb.py
 +++ b/api/tmdb.py
-@@
  def open_cache():
      global tmp_cache
      for language in LANGUAGES:
