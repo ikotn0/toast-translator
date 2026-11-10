@@ -1,6 +1,5 @@
 from cache import Cache
 import api.tmdb as tmdb
-import urllib.parse
 import asyncio
 import httpx
 import json
@@ -44,8 +43,57 @@ async def translate_with_api(client: httpx.AsyncClient, text: str, language: str
     if not text:
         return text
 
-    target = language.split('-', 1)[0]
+    # Keep regional target codes (for example ar-SA) for MyMemory's candidates.
+    target = language
     max_chunk_length = 450
+    api_url = 'https://api.mymemory.translated.net/get'
+
+    def is_meaningful_arabic(value: object, original: str) -> bool:
+        if not isinstance(value, str):
+            return False
+        candidate = value.strip()
+        if not candidate or candidate == original.strip():
+            return False
+        # MyMemory sometimes returns explanatory placeholders instead of a translation.
+        if candidate.startswith('[') and candidate.endswith(']'):
+            return False
+        if '[ترجمة المصطلح:' in candidate or '[term translation:' in candidate.lower():
+            return False
+        return any('\u0600' <= char <= '\u06ff' for char in candidate)
+
+    def candidate_score(item: dict) -> tuple[int, float, float]:
+        candidate_target = str(item.get('target') or '').lower().replace('_', '-')
+        is_saudi_arabic = int(candidate_target in ('ar-sa', 'ar-sa;'))
+        try:
+            match_score = float(item.get('match') or 0)
+        except (TypeError, ValueError):
+            match_score = 0.0
+        try:
+            quality_score = float(item.get('quality') or 0)
+        except (TypeError, ValueError):
+            quality_score = 0.0
+        return is_saudi_arabic, match_score, quality_score
+
+    def select_translation(payload: dict, original: str) -> str | None:
+        candidates = []
+        response_data = payload.get('responseData') or {}
+        if isinstance(response_data, dict):
+            candidates.append(response_data)
+        matches = payload.get('matches') or []
+        if isinstance(matches, list):
+            candidates.extend(item for item in matches if isinstance(item, dict))
+
+        valid = [
+            item for item in candidates
+            if is_meaningful_arabic(
+                item.get('translation') or item.get('translatedText'),
+                original,
+            )
+        ]
+        if not valid:
+            return None
+        best = max(valid, key=candidate_score)
+        return (best.get('translation') or best.get('translatedText')).strip()
 
     def split_text(value: str) -> list[str]:
         chunks = []
@@ -65,21 +113,20 @@ async def translate_with_api(client: httpx.AsyncClient, text: str, language: str
 
     translated_chunks = []
     for chunk in split_text(text):
-        api_url = 'https://api.mymemory.translated.net/get'
         params = {
             'q': chunk,
-            'langpair': f'{source}|{target}',
+            'langpair': f'en|{target}',
         }
         try:
             response = await client.get(api_url, params=params, timeout=20.0)
             response.raise_for_status()
             payload = response.json()
-            response_data = payload.get('responseData') or {}
-            translated_chunk = response_data.get('translatedText')
             status = payload.get('responseStatus', 200)
-            if not isinstance(translated_chunk, str) or not translated_chunk.strip():
-                return text
             if int(status) >= 400:
+                return text
+            # Compare candidates against this input piece, not the whole original text.
+            translated_chunk = select_translation(payload, chunk)
+            if not translated_chunk:
                 return text
             translated_chunks.append(translated_chunk)
         except (httpx.HTTPError, ValueError, TypeError, AttributeError):
