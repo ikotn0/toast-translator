@@ -282,11 +282,18 @@ def extract_cast(tmdb_data: dict):
 def extract_crew(tmdb_data: dict):
     directors = []
     writers = []
+
     for person in tmdb_data['credits']['crew']:
-        if person['department'] == 'Writing' and person['name'] not in writers:
-                writers.append(person['name'])
-       elif person.get('known_for_department') == 'Directing' and person.get('job', '') == 'Director' and person.get('name') not in directors:
-        
+        if person.get('department') == 'Writing' and person.get('name') not in writers:
+            writers.append(person['name'])
+
+        elif (
+            person.get('known_for_department') == 'Directing'
+            and person.get('job', '') == 'Director'
+            and person.get('name') not in directors
+        ):
+            directors.append(person['name'])
+
     return directors, writers
 
 
